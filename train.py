@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import cv2
 import threading
-from time import sleep
+from time import time, sleep
 import glob
 import os
 import ctypes
@@ -660,6 +660,10 @@ def _net(top_shape, rgb_shape, num_class=2):
         'proposals': proposals,
         'proposal_scores': proposal_scores,
 
+        'top_cls_loss': top_cls_loss,
+        'top_reg_loss': top_reg_loss,
+        'fuse_cls_loss': fuse_cls_loss,
+        'fuse_reg_loss': fuse_reg_loss,
         'solver_op': solver_op,
     }, top_view_anchors, anchors_inside_inds
 
@@ -917,6 +921,9 @@ def train(n_iter):
     net, top_view_anchors, anchors_inside_inds = _net(*loader.get_shape())
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        print()
+        print(' '*(18+len(str(n_iter))) + 'top_cls  top_reg   fuse_cls fuse_reg')
+        time_start = time_prev = time()
         for i in range(n_iter):
             batch_rgb_images, batch_top_view, batch_gt_labels, batch_gt_boxes3d, frame_id, calib, resize_coef = loader.load()
 
@@ -949,11 +956,17 @@ def train(n_iter):
                 net['fuse_labels']: batch_fuse_labels,
                 net['fuse_targets']: batch_fuse_targets,
             }
-            # _, t_cls_loss, t_reg_loss, f_cls_loss, f_reg_loss = \
-            #     sess.run((net['solver_op'], net['top_cls_loss'], net['top_reg_loss'], net['fuse_cls_loss'], net['fuse_reg_loss']), fd2)
-            sess.run(net['solver_op'], fd2)
-            print(i)
+            _, t_cls_loss, t_reg_loss, f_cls_loss, f_reg_loss = \
+                sess.run((net['solver_op'], net['top_cls_loss'], net['top_reg_loss'], net['fuse_cls_loss'], net['fuse_reg_loss']), fd2)
+            if i % 40 == 0:
+                print('train: | %6d/%d %8.5f %8.5f | %8.5f %8.5f' %
+                      (i, n_iter, t_cls_loss, t_reg_loss, f_cls_loss, f_reg_loss))
+            if i % 200 == 199:
+                time_now = time()
+                print('It took %.2f secs to train 200 iterations.' % (time_now - time_prev))
+                time_prev = time_now
+        print('It took %.2f secs to train %d iterations.' % (time() - time_start, n_iter))
 
 
 if __name__ == '__main__':
-    train(1000)
+    train(400)
