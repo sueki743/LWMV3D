@@ -897,7 +897,7 @@ def fusion_target(rois, gt_labels, gt_boxes, gt_boxes3d):
     return rois, labels, targets
 
 
-def train(n_iter, save_path):
+def train(n_iter, save_path, load_path):
     def project_to_roi3d(top_rois):
         rois3d = top_box_to_box3d(top_rois[:, 1:5])
         return rois3d
@@ -921,7 +921,10 @@ def train(n_iter, save_path):
     loader = Loader(shuffle=True)
     net, top_view_anchors, anchors_inside_inds = _net(*loader.get_shape())
     with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+        if load_path is None:
+            sess.run(tf.global_variables_initializer())
+        else:
+            tf.train.Saver().restore(sess, load_path)
         print()
         print(' '*(18+len(str(n_iter))) + 'top_cls  top_reg   fuse_cls fuse_reg')
         time_start = time_prev = time()
@@ -974,10 +977,16 @@ def train(n_iter, save_path):
 if __name__ == '__main__':
     time_start = time()
     parser = argparse.ArgumentParser()
-    parser.add_argument('n_iter', type=int, help='number of iterations')
-    parser.add_argument('-s', '--save-path', default='checkpoint/'+strftime('%Y%m%d_%H%M'), help='defaults to checkpoint/yyyymmdd_hhmm')
+    parser.add_argument('n_iter', type=int,
+                        help='number of iterations')
+    parser.add_argument('-s', '--save-path', default='checkpoint/'+strftime('%Y%m%d_%H%M'),
+                        help='Where to save model after training. Defaults to checkpoint/yyyymmdd_hhmm.')
+    parser.add_argument('-l', '--load', nargs='?', const='', dest='load_path',
+                        help='Load pretrained model before training. If LOAD_PATH is not specified, it defaults to SAVE_PATH.')
     args = parser.parse_args()
     assert os.path.basename(args.save_path) != 'checkpoint', 'save_path basename must not be "checkpoint"'
+    if args.load_path == '':
+        args.load_path = args.save_path
 
-    train(args.n_iter, args.save_path)
+    train(args.n_iter, args.save_path, args.load_path)
     print('train.py took %.2f seconds.' % (time() - time_start))
