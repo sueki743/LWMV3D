@@ -2,12 +2,13 @@ import tensorflow as tf
 import numpy as np
 import cv2
 import threading
-from time import time, sleep
+from time import time, sleep, strftime
 import glob
 import os
 import ctypes
 from numba import jit
 from easydict import EasyDict
+import argparse
 
 from blocks import *
 from lib.nms.cpu_nms import cpu_nms as nms
@@ -896,7 +897,7 @@ def fusion_target(rois, gt_labels, gt_boxes, gt_boxes3d):
     return rois, labels, targets
 
 
-def train(n_iter):
+def train(n_iter, save_path):
     def project_to_roi3d(top_rois):
         rois3d = top_box_to_box3d(top_rois[:, 1:5])
         return rois3d
@@ -966,9 +967,17 @@ def train(n_iter):
                 print('200 iterations took %.2f seconds.' % (time_now - time_prev))
                 time_prev = time_now
         print('%d iterations took %.2f seconds.' % (n_iter, time() - time_start))
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        tf.train.Saver().save(sess, save_path)
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('n_iter', type=int, help='number of iterations')
+    parser.add_argument('-s', '--save-path', default='checkpoint/'+strftime('%Y%m%d_%H%M'), help='defaults to checkpoint/yyyymmdd_hhmm')
+    args = parser.parse_args()
+    assert os.path.basename(args.save_path) != 'checkpoint', 'save_path basename must not be "checkpoint"'
+
     time_start = time()
-    train(400)
+    train(args.n_iter, args.save_path)
     print('train.py took %.2f seconds.' % (time() - time_start))
