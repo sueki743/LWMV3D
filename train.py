@@ -963,10 +963,12 @@ def train(n_iter):
                       (i, n_iter, t_cls_loss, t_reg_loss, f_cls_loss, f_reg_loss))
             if i % 200 == 199:
                 time_now = time()
-                print('It took %.2f secs to train 200 iterations.' % (time_now - time_prev))
+                print('200 iterations took %.2f seconds.' % (time_now - time_prev))
                 time_prev = time_now
-        print('It took %.2f secs to train %d iterations.' % (time() - time_start, n_iter))
+        print('%d iterations took %.2f seconds.' % (n_iter, time() - time_start))
 
 
 if __name__ == '__main__':
+    time_start = time()
     train(400)
+    print('train.py took %.2f seconds.' % (time() - time_start))
