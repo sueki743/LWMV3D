@@ -972,12 +972,12 @@ def train(n_iter, save_path):
 
 
 if __name__ == '__main__':
+    time_start = time()
     parser = argparse.ArgumentParser()
     parser.add_argument('n_iter', type=int, help='number of iterations')
     parser.add_argument('-s', '--save-path', default='checkpoint/'+strftime('%Y%m%d_%H%M'), help='defaults to checkpoint/yyyymmdd_hhmm')
     args = parser.parse_args()
     assert os.path.basename(args.save_path) != 'checkpoint', 'save_path basename must not be "checkpoint"'
 
-    time_start = time()
     train(args.n_iter, args.save_path)
     print('train.py took %.2f seconds.' % (time() - time_start))
