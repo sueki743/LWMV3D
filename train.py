@@ -16,11 +16,17 @@ from lib.roi_pooling_layer.roi_pooling_op import roi_pool as tf_roipooling
 from lib.utils.bbox import bbox_overlaps
 
 
-DIR = {
+DIR_TRAIN = {
     'lidar': '/home/katou01/MV3D/data/raw/kitti/data_object/train/velodyne_points/data',
     'rgb'  : '/home/katou01/MV3D/data/raw/kitti/data_object/train/image_02/data',
     'calib': '/home/katou01/MV3D/data/raw/kitti/data_object/train/calib',
     'label': '/home/katou01/MV3D/data/raw/kitti/data_object/train/label_2',
+}
+DIR_VAL = {
+    'lidar': '/home/katou01/MV3D/data/raw/kitti/data_object/val/velodyne_points/data',
+    'rgb'  : '/home/katou01/MV3D/data/raw/kitti/data_object/val/image_02/data',
+    'calib': '/home/katou01/MV3D/data/raw/kitti/data_object/val/calib',
+    'label': '/home/katou01/MV3D/data/raw/kitti/data_object/val/label_2',
 }
 SUFFIX = {
     'lidar': '.bin',
@@ -172,14 +178,15 @@ def box3d_compose(obj):
 
 
 class Loader:
-    def __init__(self, queue_size=20, shuffle=False, is_testset=False):
+    def __init__(self, dirs=DIR_TRAIN, queue_size=20, shuffle=False, is_testset=False):
         def make_tags(kind):
             def make_tag(abspath):
                 basename = os.path.basename(abspath)
                 assert basename.endswith(SUFFIX[kind])
                 return basename[:-len(SUFFIX[kind])]
-            return frozenset(make_tag(abspath) for abspath in glob.iglob(DIR[kind] + '/*'))
-        tagsetset = set(make_tags(kind) for kind in DIR.keys())
+            return frozenset(make_tag(abspath) for abspath in glob.iglob(dirs[kind] + '/*'))
+        self.dirs = dirs
+        tagsetset = set(make_tags(kind) for kind in SUFFIX.keys())
         assert len(tagsetset) == 1
         self.tags = list(tagsetset.pop())
         self.tags.sort()
@@ -193,9 +200,13 @@ class Loader:
         self.queue = []
         threading.Thread(target=self.loader, daemon=True).start()
 
+    def __iter__(self):
+        for _ in range(len(self.tags)):
+            yield self.load()
+
     def _load(self):
         def make_path(kind, tag):
-            return DIR[kind] + '/' + tag + SUFFIX[kind]
+            return self.dirs[kind] + '/' + tag + SUFFIX[kind]
 
         def keep_gt_inside_range(labels, boxes3d):
             def box3d_in_top_view(box3d):
@@ -529,7 +540,7 @@ def _loss_fuse(scores, deltas, rcnn_labels, rcnn_targets):
     return rcnn_cls_loss, rcnn_reg_loss
 
 
-def _net(top_shape, rgb_shape, num_class=2):
+def make_net(top_shape, rgb_shape, num_class=2):
     def convert_w_h_cx_cy(base):
         """ Return width, height, x center, and y center for a base (box). """
         w = base[2] - base[0] + 1
@@ -660,6 +671,9 @@ def _net(top_shape, rgb_shape, num_class=2):
         # output
         'proposals': proposals,
         'proposal_scores': proposal_scores,
+
+        'fuse_probs': fuse_probs,
+        'fuse_deltas': fuse_deltas,
 
         'top_cls_loss': top_cls_loss,
         'top_reg_loss': top_reg_loss,
@@ -897,29 +911,31 @@ def fusion_target(rois, gt_labels, gt_boxes, gt_boxes3d):
     return rois, labels, targets
 
 
+def project_to_roi3d(top_rois):
+    rois3d = top_box_to_box3d(top_rois[:, 1:5])
+    return rois3d
+
+
+def project_to_rgb_roi(rois3d, calib, resize_coef):
+    def box3d_to_rgb_box(boxes3d, calib, resize_coef):
+        return (calib.velo_to_im(boxes3d) * resize_coef).astype(np.int32)
+
+    num = len(rois3d)
+    rois = np.zeros((num, 5), dtype=np.int32)
+    projections = box3d_to_rgb_box(rois3d, calib, resize_coef)
+    for n in range(num):
+        qs = projections[n]
+        minx = np.min(qs[:, 0])
+        maxx = np.max(qs[:, 0])
+        miny = np.min(qs[:, 1])
+        maxy = np.max(qs[:, 1])
+        rois[n, 1:5] = minx, miny, maxx, maxy
+    return rois
+
+
 def train(n_iter, save_path, load_path):
-    def project_to_roi3d(top_rois):
-        rois3d = top_box_to_box3d(top_rois[:, 1:5])
-        return rois3d
-
-    def project_to_rgb_roi(rois3d, calib, resize_coef):
-        def box3d_to_rgb_box(boxes3d, calib, resize_coef):
-            return (calib.velo_to_im(boxes3d) * resize_coef).astype(np.int32)
-
-        num = len(rois3d)
-        rois = np.zeros((num, 5), dtype=np.int32)
-        projections = box3d_to_rgb_box(rois3d, calib, resize_coef)
-        for n in range(num):
-            qs = projections[n]
-            minx = np.min(qs[:, 0])
-            maxx = np.max(qs[:, 0])
-            miny = np.min(qs[:, 1])
-            maxy = np.max(qs[:, 1])
-            rois[n, 1:5] = minx, miny, maxx, maxy
-        return rois
-
     loader = Loader(shuffle=True)
-    net, top_view_anchors, anchors_inside_inds = _net(*loader.get_shape())
+    net, top_view_anchors, anchors_inside_inds = make_net(*loader.get_shape())
     with tf.Session() as sess:
         if load_path is None:
             sess.run(tf.global_variables_initializer())
