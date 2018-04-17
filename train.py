@@ -183,7 +183,7 @@ class Loader:
             return frozenset(make_tag(abspath) for abspath in glob.iglob(dirs[kind] + '/*'))
         self.dirs = dirs
         tagsetset = set(make_tags(kind) for kind in SUFFIX.keys())
-        assert len(tagsetset) == 1
+        assert len(tagsetset) == 1, 'file names of different kinds of data must be the same except their extensions'
         self.tags = list(tagsetset.pop())
         self.tags.sort()
         self.shuffle = shuffle
