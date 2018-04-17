@@ -980,10 +980,10 @@ def train(n_iter, save_path, load_path):
                 sess.run((net['solver_op'], net['top_cls_loss'], net['top_reg_loss'], net['fuse_cls_loss'], net['fuse_reg_loss']), fd2)
             if i % 40 == 0:
                 print('train: | %6d/%d %8.5f %8.5f | %8.5f %8.5f' %
-                      (i, n_iter, t_cls_loss, t_reg_loss, f_cls_loss, f_reg_loss))
+                      (i, n_iter, t_cls_loss, t_reg_loss, f_cls_loss, f_reg_loss), flush=True)
             if i % 200 == 199:
                 time_now = time()
-                print('200 iterations took %.2f seconds.' % (time_now - time_prev))
+                print('200 iterations took %.2f seconds.' % (time_now - time_prev), flush=True)
                 time_prev = time_now
         print('%d iterations took %.2f seconds.' % (n_iter, time() - time_start))
         os.makedirs(os.path.dirname(save_path), exist_ok=True)

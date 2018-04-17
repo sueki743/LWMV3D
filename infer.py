@@ -155,7 +155,7 @@ def infer(load_path, output_dir):
 
             if i % 100 == 99:
                 time_now = time()
-                print('100 frames took %.2f seconds.' % (time_now - time_prev))
+                print('100 frames took %.2f seconds.' % (time_now - time_prev), flush=True)
                 time_prev = time_now
         print('%d frames took %.2f seconds.' % (len(loader.tags), time() - time_start))
 
