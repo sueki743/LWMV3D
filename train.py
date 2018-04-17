@@ -130,17 +130,14 @@ def read_label(path, calib):
 
 
 def clidar_to_top(lidar):
-    # Calculate map size and pack parameters for top view and front view map (DON'T CHANGE THIS !)
     Xn = int((TOP_X_MAX - TOP_X_MIN) / TOP_X_DIVISION)
     Yn = int((TOP_Y_MAX - TOP_Y_MIN) / TOP_Y_DIVISION)
     Zn = int((TOP_Z_MAX - TOP_Z_MIN) / TOP_Z_DIVISION)
 
-    top_flip = np.ones((Xn, Yn, Zn + 2), dtype=np.float32)  # DON'T CHANGE THIS !
+    top_flip = np.ones((Xn, Yn, Zn + 2), dtype=np.float32)
 
-    num = lidar.shape[0]  # DON'T CHANGE THIS !
+    num = lidar.shape[0]
 
-    # call the C function to create top view maps
-    # The np array indata will be edited by createTopViewMaps to populate it with the 8 top view maps
     SharedLib.createTopMaps(ctypes.c_void_p(lidar.ctypes.data),
                             ctypes.c_int(num),
                             ctypes.c_void_p(top_flip.ctypes.data),
@@ -158,13 +155,12 @@ def clidar_to_top(lidar):
 @jit
 def box3d_compose(obj):
     h, w, l = obj.size
-    trackletBox = np.array([  # in velodyne coordinates around zero point and without orientation yet
+    trackletBox = np.array([
         [-l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2],
         [w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2],
         [0.0, 0.0, 0.0, 0.0, h, h, h, h]
     ])
 
-    # re-create 3D bounding box in velodyne coordinate system
     yaw = obj.rotation[2]
     rotMat = np.array([
         [np.cos(yaw), -np.sin(yaw), 0.0],
@@ -210,7 +206,6 @@ class Loader:
 
         def keep_gt_inside_range(labels, boxes3d):
             def box3d_in_top_view(box3d):
-                # what if only some are outside of the range, but majorities are inside.
                 for i in range(8):
                     if TOP_X_MIN <= box3d[i, 0] <= TOP_X_MAX and TOP_Y_MIN <= box3d[i, 1] <= TOP_Y_MAX:
                         continue
@@ -222,15 +217,12 @@ class Loader:
                 return False, None, None
             assert labels.shape[0] == boxes3d.shape[0]
 
-            # get limited boxes3d and labels.
             keep = np.array([box3d_in_top_view(box3d) for box3d in boxes3d], dtype=bool)
 
-            # if all targets are out of range in selected top view, return False.
             if not np.any(keep):
                 return False, None, None
             return True, labels[keep], boxes3d[keep]
 
-        # only feed in frames with ground truth labels and bboxes during training, or the training nets will break.
         while True:
             tag = self.tags[self.tag_index]
 
@@ -251,17 +243,14 @@ class Loader:
             labels = np.array([1 if obs.type in ('Van', 'Truck', 'Car', 'Tram') else 0 for obs in obstacles], dtype=np.int32)
 
             self.tag_index += 1
-            # reset self.tag_index to 0 and shuffle tag list
             if self.tag_index >= len(self.tags):
                 self.tag_index = 0
                 if self.shuffle:
                     np.random.shuffle(self.tags)
 
-            # only feed in frames with ground truth labels and bboxes during training, or the training nets will break.
             if self.is_testset:
                 break
             is_gt_inside_range, labels, boxes3d = keep_gt_inside_range(labels, boxes3d)
-            # if no gt labels inside defined range, discard this training frame.
             if is_gt_inside_range:
                 break
 
@@ -313,34 +302,25 @@ def rpn_nms_generator(stride, img_width, img_height, img_scale, nms_thresh, min_
             ws = np.exp(dws) * et_ws
             hs = np.exp(dhs) * et_hs
 
-            boxes[:, 0::4] = cxs - 0.5 * ws  # x1, y1,x2,y2
+            boxes[:, 0::4] = cxs - 0.5 * ws
             boxes[:, 1::4] = cys - 0.5 * hs
             boxes[:, 2::4] = cxs + 0.5 * ws
             boxes[:, 3::4] = cys + 0.5 * hs
             return boxes
 
         def clip_boxes(boxes, width, height):
-            ''' Clip process to image boundaries. '''
-            # x1 >= 0
             boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], width - 1), 0)
-            # y1 >= 0
             boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], height - 1), 0)
-            # x2 < width
             boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], width - 1), 0)
-            # y2 < height
             boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], height - 1), 0)
             return boxes
 
         def filter_boxes(boxes, min_size):
-            '''Remove all boxes with any side smaller than min_size.'''
             ws = boxes[:, 2] - boxes[:, 0] + 1
             hs = boxes[:, 3] - boxes[:, 1] + 1
             keep = np.where((ws >= min_size) & (hs >= min_size))[0]
             return keep
 
-        # 1. Generate proposals from box deltas and shifted anchors
-        #batch_size, H, W, C = scores.shape
-        #assert(C==2)
         scores = scores.reshape((-1, 2,1))
         scores = scores[:,1,:]
         deltas = deltas.reshape((-1, 4))
@@ -349,39 +329,27 @@ def rpn_nms_generator(stride, img_width, img_height, img_scale, nms_thresh, min_
         deltas = deltas[inside_inds]
         anchors = anchors[inside_inds]
 
-        # Convert anchors into proposals via box transformations
         proposals = box_transform_inv(anchors, deltas)
 
-        # 2. clip predicted boxes to image
         proposals = clip_boxes(proposals, img_width, img_height)
 
-        # 3. remove predicted boxes with either height or width < threshold
-        # (NOTE: convert min_size to input image scale stored in im_info[2])
         keep      = filter_boxes(proposals, min_size*img_scale)
         proposals = proposals[keep, :]
         scores    = scores[keep]
 
-        # 4. sort all (proposal, score) pairs by score from highest to lowest
-        # 5. take top pre_nms_topN (e.g. 6000)
         order = scores.ravel().argsort()[::-1]
         if nms_pre_topn > 0:
             order = order[:nms_pre_topn]
             proposals = proposals[order, :]
             scores = scores[order]
 
-        # 6. apply nms (e.g. threshold = 0.7)
-        # 7. take after_nms_topN (e.g. 300)
-        # 8. return the top proposals
         keep = nms(np.hstack((proposals, scores)), nms_thresh)
         if nms_post_topn > 0:
             keep = keep[:nms_post_topn]
             proposals = proposals[keep, :]
             scores = scores[keep]
 
-        # Output rois blob
-        # Our RPN implementation only supports a single input image, so all
-        # batch inds are 0
-        roi_scores=scores.squeeze()
+        roi_scores = scores.squeeze()
 
         num_proposals = len(proposals)
         batch_inds = np.zeros((num_proposals, 1), dtype=np.float32)
@@ -460,48 +428,9 @@ def _net_fusion(input):
 
 
 def _loss_rpn(scores, deltas, inds, pos_inds, rpn_labels, rpn_targets):
-
-    def modified_smooth_l1( box_preds, box_targets, sigma=3.0):
-        '''
-            ResultLoss = outside_weights * SmoothL1(inside_weights * (box_pred - box_targets))
-            SmoothL1(x) = 0.5 * (sigma * x)^2,    if |x| < 1 / sigma^2
-                          |x| - 0.5 / sigma^2,    otherwise
-        '''
+    def modified_smooth_l1(box_preds, box_targets, sigma=3.0):
         sigma2 = sigma * sigma
-        diffs  =  tf.subtract(box_preds, box_targets)
-        smooth_l1_signs = tf.cast(tf.less(tf.abs(diffs), 1.0 / sigma2), tf.float32)
-
-        smooth_l1_option1 = tf.multiply(diffs, diffs) * 0.5 * sigma2
-        smooth_l1_option2 = tf.abs(diffs) - 0.  / sigma2
-        smooth_l1_add = tf.multiply(smooth_l1_option1, smooth_l1_signs) + tf.multiply(smooth_l1_option2, 1-smooth_l1_signs)
-        smooth_l1 = smooth_l1_add   #tf.multiply(box_weights, smooth_l1_add)  #
-
-        return smooth_l1
-
-    scores1      = tf.reshape(scores,[-1,2])
-    rpn_scores   = tf.gather(scores1,inds)  # remove ignore label
-    rpn_cls_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rpn_scores, labels=rpn_labels))
-
-    deltas1       = tf.reshape(deltas,[-1,4])
-    rpn_deltas    = tf.gather(deltas1, pos_inds)  # remove ignore label
-
-    with tf.variable_scope('modified_smooth_l1'):
-        rpn_smooth_l1 = modified_smooth_l1(rpn_deltas, rpn_targets, sigma=3.0)
-
-    rpn_reg_loss  = tf.reduce_mean(tf.reduce_sum(rpn_smooth_l1, axis=1))
-    return rpn_cls_loss, rpn_reg_loss
-
-
-def _loss_fuse(scores, deltas, rcnn_labels, rcnn_targets):
-
-    def modified_smooth_l1( deltas, targets, sigma=3.0):
-        '''
-            ResultLoss = outside_weights * SmoothL1(inside_weights * (box_pred - box_targets))
-            SmoothL1(x) = 0.5 * (sigma * x)^2,    if |x| < 1 / sigma^2
-                          |x| - 0.5 / sigma^2,    otherwise
-        '''
-        sigma2 = sigma * sigma
-        diffs  =  tf.subtract(deltas, targets)
+        diffs = tf.subtract(box_preds, box_targets)
         smooth_l1_signs = tf.cast(tf.less(tf.abs(diffs), 1.0 / sigma2), tf.float32)
 
         smooth_l1_option1 = tf.multiply(diffs, diffs) * 0.5 * sigma2
@@ -511,32 +440,57 @@ def _loss_fuse(scores, deltas, rcnn_labels, rcnn_targets):
 
         return smooth_l1
 
+    scores1 = tf.reshape(scores, [-1, 2])
+    rpn_scores = tf.gather(scores1, inds)  # remove ignore label
+    rpn_cls_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rpn_scores, labels=rpn_labels))
+
+    deltas1 = tf.reshape(deltas, [-1, 4])
+    rpn_deltas = tf.gather(deltas1, pos_inds)  # remove ignore label
+
+    with tf.variable_scope('modified_smooth_l1'):
+        rpn_smooth_l1 = modified_smooth_l1(rpn_deltas, rpn_targets, sigma=3.0)
+
+    rpn_reg_loss = tf.reduce_mean(tf.reduce_sum(rpn_smooth_l1, axis=1))
+    return rpn_cls_loss, rpn_reg_loss
+
+
+def _loss_fuse(scores, deltas, rcnn_labels, rcnn_targets):
+    def modified_smooth_l1(deltas, targets, sigma=3.0):
+        sigma2 = sigma * sigma
+        diffs = tf.subtract(deltas, targets)
+        smooth_l1_signs = tf.cast(tf.less(tf.abs(diffs), 1.0 / sigma2), tf.float32)
+
+        smooth_l1_option1 = tf.multiply(diffs, diffs) * 0.5 * sigma2
+        smooth_l1_option2 = tf.abs(diffs) - 0.5 / sigma2
+        smooth_l1_add = tf.multiply(smooth_l1_option1, smooth_l1_signs) + tf.multiply(smooth_l1_option2, 1-smooth_l1_signs)
+        smooth_l1 = smooth_l1_add
+
+        return smooth_l1
 
     _, num_class = scores.get_shape().as_list()
-    dim = np.prod(deltas.get_shape().as_list()[1:])//num_class
+    dim = np.prod(deltas.get_shape().as_list()[1:]) // num_class
 
     with tf.variable_scope('get_scores'):
-        rcnn_scores   = tf.reshape(scores,[-1, num_class], name='rcnn_scores')
+        rcnn_scores = tf.reshape(scores, [-1, num_class], name='rcnn_scores')
         rcnn_cls_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
             logits=rcnn_scores, labels=rcnn_labels))
 
     with tf.variable_scope('get_detals'):
-        num = tf.identity( tf.shape(deltas)[0], 'num')
-        idx = tf.identity(tf.range(num)*num_class + rcnn_labels,name='idx')
-        deltas1      = tf.reshape(deltas,[-1, dim],name='deltas1')
-        rcnn_deltas_with_fp  = tf.gather(deltas1,  idx, name='rcnn_deltas_with_fp')  # remove ignore label
-        rcnn_targets_with_fp =  tf.reshape(rcnn_targets,[-1, dim], name='rcnn_targets_with_fp')
+        num = tf.identity(tf.shape(deltas)[0], 'num')
+        idx = tf.identity(tf.range(num)*num_class + rcnn_labels, name='idx')
+        deltas1 = tf.reshape(deltas, [-1, dim], name='deltas1')
+        rcnn_deltas_with_fp = tf.gather(deltas1, idx, name='rcnn_deltas_with_fp')  # remove ignore label
+        rcnn_targets_with_fp = tf.reshape(rcnn_targets, [-1, dim], name='rcnn_targets_with_fp')
 
-        #remove false positive
+        # remove false positive
         fp_idxs = tf.where(tf.not_equal(rcnn_labels, 0), name='fp_idxs')
-        rcnn_deltas_no_fp  = tf.gather(rcnn_deltas_with_fp,  fp_idxs, name='rcnn_deltas_no_fp')
-        rcnn_targets_no_fp =  tf.gather(rcnn_targets_with_fp,  fp_idxs, name='rcnn_targets_no_fp')
+        rcnn_deltas_no_fp = tf.gather(rcnn_deltas_with_fp, fp_idxs, name='rcnn_deltas_no_fp')
+        rcnn_targets_no_fp = tf.gather(rcnn_targets_with_fp, fp_idxs, name='rcnn_targets_no_fp')
 
     with tf.variable_scope('modified_smooth_l1'):
         rcnn_smooth_l1 = modified_smooth_l1(rcnn_deltas_no_fp, rcnn_targets_no_fp, sigma=3.0)
 
-    rcnn_reg_loss  = tf.reduce_mean(tf.reduce_sum(rcnn_smooth_l1, axis=1))
-
+    rcnn_reg_loss = tf.reduce_mean(tf.reduce_sum(rcnn_smooth_l1, axis=1))
     return rcnn_cls_loss, rcnn_reg_loss
 
 
@@ -570,7 +524,7 @@ def make_net(top_shape, rgb_shape, num_class=2):
         return bases
 
     def make_bases_given_scales(base, scales):
-        """ Enumerate a set of  bases for each scale wrt a base. """
+        """ Enumerate a set of bases for each scale wrt a base. """
         w, h, cx, cy = convert_w_h_cx_cy(base)
         ws = w * scales
         hs = h * scales
@@ -578,7 +532,7 @@ def make_net(top_shape, rgb_shape, num_class=2):
         return bases
 
     def make_bases(base_size, ratios, scales):
-        """  Generate bases by enumerating aspect ratios * scales, wrt a reference (0, 0, 15, 15)  base (box). """
+        """ Generate bases by enumerating aspect ratios * scales, wrt a reference (0, 0, 15, 15) base (box). """
         base = np.array([1, 1, base_size, base_size]) - 1
         ratio_bases = make_bases_given_ratios(base, ratios)
         bases = np.vstack(
@@ -587,13 +541,9 @@ def make_net(top_shape, rgb_shape, num_class=2):
         return bases
 
     def make_anchors(bases, stride, feature_shape):
-        """ Refrence "Faster R-CNN: Towards Real-Time ObjectDetection with Region Proposal Networks"  Figure 3:Left
-            :return
-                inside_inds: indexes of inside anchors
-        """
+        """ Reference "Faster R-CNN: Towards Real-Time ObjectDetection with Region Proposal Networks"  Figure 3:Left """
         H, W = feature_shape
 
-        # anchors = shifted bases. Generate proposals from box deltas and anchors
         shift_x = np.arange(0, W) * stride
         shift_y = np.arange(0, H) * stride
         shift_x, shift_y = np.meshgrid(shift_x, shift_y)
@@ -724,23 +674,6 @@ def box3d_to_top_box(boxes3d):
 
 
 def rpn_target(anchors, inside_inds, gt_labels, gt_boxes):
-    """
-    For training RPNs, we assign a binary class  label(of  being  an object  or  not)  to  each  anchor. We assign a
-    positive label to two  kinds  of  anchors:  (i) the anchor/anchors with  the  highest  Intersection-over-Union
-    (IoU) overlap with a ground-truth box, or (ii) an anchor  that  has  an  IoU  overlap  higher  than  0.7  with any
-    ground-truth box. Note that a single ground-truth box  may  assign  positive  labels  to  multiple  anchors.
-    Usually the second condition is sufficient to determine the  positive samples; but we still adopt the first
-    condition  for  the  reason  that  in some  rare  cases  the second  condition  may  find  no  positive  sample.
-    We assign a negative label to a non-positive anchor if it’s IoU ratio is lower than 0.3 for all ground-truth
-    boxes.Anchors that are neither positive nor negative do not contribute to the training objective.
-
-
-    :return:
-             pos_neg_inds : positive and negative samples
-             pos_inds : positive samples
-             labels: pos_neg_inds's labels
-             targets:  positive samples's bias to ground truth (top view bounding box regression targets)
-    """
     def box_transform(et_boxes, gt_boxes):
         et_ws  = et_boxes[:, 2] - et_boxes[:, 0] + 1.0
         et_hs  = et_boxes[:, 3] - et_boxes[:, 1] + 1.0
@@ -788,12 +721,11 @@ def rpn_target(anchors, inside_inds, gt_labels, gt_boxes):
     labels[gt_argmax_overlaps] = 1                           # fg label: for each gt, anchor with highest overlap
     labels[max_overlaps >= CFG.TRAIN.RPN_FG_THRESH_LO] = 1   # fg label: above threshold IOU
 
-
     # subsample positive labels
     num_fg = int(CFG.TRAIN.RPN_FG_FRACTION * CFG.TRAIN.RPN_BATCHSIZE)
     fg_inds = np.where(labels == 1)[0]
     if len(fg_inds) > num_fg:
-        disable_inds = np.random.choice( fg_inds, size=(len(fg_inds) - num_fg), replace=False)
+        disable_inds = np.random.choice(fg_inds, size=(len(fg_inds) - num_fg), replace=False)
         labels[disable_inds] = -1
 
     # subsample negative labels
@@ -806,12 +738,12 @@ def rpn_target(anchors, inside_inds, gt_labels, gt_boxes):
     idx_label  = np.where(labels != -1)[0]
     idx_target = np.where(labels ==  1)[0]
 
-    pos_neg_inds   = inside_inds[idx_label]
+    pos_neg_inds = inside_inds[idx_label]
     labels = labels[idx_label]
 
     pos_inds = inside_inds[idx_target]
-    pos_anchors  = inside_anchors[idx_target]
-    pos_gt_boxes = (gt_boxes[argmax_overlaps])[idx_target]
+    pos_anchors = inside_anchors[idx_target]
+    pos_gt_boxes = gt_boxes[argmax_overlaps][idx_target]
     targets = box_transform(pos_anchors, pos_gt_boxes)
 
     return pos_neg_inds, pos_inds, labels, targets
@@ -862,19 +794,18 @@ def fusion_target(rois, gt_labels, gt_boxes, gt_boxes3d):
     CFG.TRAIN.RCNN_FG_THRESH_LO = 0.5
 
     # Include "ground-truth" in the set of candidate rois
-    rois = rois.reshape(-1,5)  # Proposal (i, x1, y1, x2, y2) coming from RPN
+    rois = rois.reshape(-1, 5)  # Proposal (i, x1, y1, x2, y2) coming from RPN
     num           = len(gt_boxes)
     zeros         = np.zeros((num, 1), dtype=np.float32)
     extended_rois = np.vstack((rois, np.hstack((zeros, gt_boxes))))
     assert np.all(extended_rois[:, 0] == 0), 'Only single image batches are supported'
-
 
     rois_per_image    = CFG.TRAIN.RCNN_BATCH_SIZE
     fg_rois_per_image = np.round(CFG.TRAIN.RCNN_FG_FRACTION * rois_per_image)
 
     # overlaps: (rois x gt_boxes)
     overlaps = bbox_overlaps(
-        np.ascontiguousarray(extended_rois[:,1:5], dtype=np.float),
+        np.ascontiguousarray(extended_rois[:, 1:5], dtype=np.float),
         np.ascontiguousarray(gt_boxes, dtype=np.float)
     )
     max_overlaps  = overlaps.max(axis=1)
@@ -883,26 +814,18 @@ def fusion_target(rois, gt_labels, gt_boxes, gt_boxes3d):
 
     # Select foreground RoIs as those with >= FG_THRESH overlap
     fg_inds = np.where(max_overlaps >= CFG.TRAIN.RCNN_FG_THRESH_LO)[0]
-    # fg_rois_per_this_image = int(min(10, fg_inds.size))
-    # if fg_inds.size > 0:
-    #     fg_inds = np.random.choice(fg_inds, size=fg_rois_per_this_image, replace=False)
 
     # Select false positive
     fp_inds = np.where((max_overlaps < 0.01))[0]
-    # fp_rois_per_this_image = int(min(10, fp_inds.size))
-    # if fp_inds.size > 0:
-    #     fp_inds = np.random.choice(fp_inds, size=fp_rois_per_this_image, replace=False)
-
 
     # The indices that we're selecting (both fg and bg)
     keep   = np.append(fg_inds, fp_inds)
     rois   = extended_rois[keep]
-    labels = labels[keep]                # Select sampled values from various arrays:
-    labels[fg_inds.size:] = 0  # Clamp la bels for the background RoIs to 0
-
+    labels = labels[keep]
+    labels[fg_inds.size:] = 0
 
     gt_boxes3d = gt_boxes3d[gt_assignment[keep]]
-    et_boxes=rois[:,1:5]
+    et_boxes = rois[:, 1:5]
 
     et_boxes3d = top_box_to_box3d(et_boxes)
     targets = box3d_transform(et_boxes3d, gt_boxes3d)

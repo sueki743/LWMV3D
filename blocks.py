@@ -82,11 +82,7 @@ def concat(input, axis=3, name='cat'):
 
 
 def upsample2d(input, factor=2, has_bias=True, trainable=True, name='upsample2d'):
-
     def make_upsample_filter(size):
-        '''
-        Make a 2D bilinear kernel suitable for upsampling of the given (h, w) size.
-        '''
         factor = (size + 1) // 2
         if size % 2 == 1:
             center = factor - 1
@@ -97,29 +93,25 @@ def upsample2d(input, factor=2, has_bias=True, trainable=True, name='upsample2d'
                (1 - abs(og[1] - center) / factor)
 
     input_shape = input.get_shape().as_list()
-    assert len(input_shape)==4
-    N = input_shape[0]
-    H = input_shape[1]
-    W = input_shape[2]
+    assert len(input_shape) == 4
+    # N = input_shape[0]
+    # H = input_shape[1]
+    # W = input_shape[2]
     C = input_shape[3]
-    K = C
 
     size = 2 * factor - factor % 2
     filter = make_upsample_filter(size)
-    weights = np.zeros(shape=(size,size,C,K), dtype=np.float32)
+    weights = np.zeros(shape=(size, size, C, C), dtype=np.float32)
     for c in range(C):
         weights[:, :, c, c] = filter
-    init= tf.constant_initializer(value=weights, dtype=tf.float32)
+    init = tf.constant_initializer(value=weights, dtype=tf.float32)
 
-    #https://github.com/tensorflow/tensorflow/issues/833
-    output_shape=tf.stack([tf.shape(input)[0], tf.shape(input)[1]*factor,tf.shape(input)[2]*factor, tf.shape(input)[3]])#[N, H*factor, W*factor, C],
-    w = tf.get_variable(name=name+'_weight', shape=[size, size, C, K], initializer=init, trainable=trainable)
+    output_shape = tf.stack([tf.shape(input)[0], tf.shape(input)[1]*factor, tf.shape(input)[2]*factor, tf.shape(input)[3]])
+    w = tf.get_variable(name=name+'_weight', shape=[size, size, C, C], initializer=init, trainable=trainable)
     deconv = tf.nn.conv2d_transpose(name=name, value=input, filter=w, output_shape=output_shape, strides=[1, factor, factor, 1], padding='SAME')
-
     if has_bias:
-        b = tf.get_variable(name=name+'_bias', shape=[K], initializer=tf.constant_initializer(0.0))
-        deconv = deconv+b
-
+        b = tf.get_variable(name=name+'_bias', shape=[C], initializer=tf.constant_initializer(0.0))
+        deconv += b
     return deconv
 
 
