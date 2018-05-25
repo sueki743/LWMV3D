@@ -1,4 +1,4 @@
-# Fast 3D Detection
+# Light-Weight Multi-View 3D Object Detection
 
 ## Requirements
 * Python 3.5.2 or higher
