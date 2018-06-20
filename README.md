@@ -9,11 +9,11 @@
 
 ## Build
 First, change `-arch=sm_52` in the files `lib/setup.py` and `lib/roi_pooling_layer/make.sh` to an appropriate value for your GPU.
-```
+```bash
 ./make.sh
 ```
 
-## Data
+## Dataset
 Download left color images, Velodyne point clouds, camera calibration matrices, and training labels
 from `http://www.cvlibs.net/datasets/kitti/eval_object.php`.
 Split them into a training set and a validation set (e.g. according to `Train/Val Split` in `http://www.cs.toronto.edu/objprop3d/downloads.php`)
@@ -26,7 +26,7 @@ Please read help by `python train.py -h`.
 Please read help by `python infer.py -h`.
 
 ## Evaluate
-```
+```bash
 cd path/to/inference/output_dir
 mkdir data
 mv *.txt data/
